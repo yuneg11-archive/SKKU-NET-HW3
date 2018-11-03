@@ -9,6 +9,7 @@
 
 #define MAX_MESSAGE_LEN 1024//512
 #define MAX_FILE_NAME_LEN 256
+#define TIME_SPACE_USEC 30
 
 int createAndBindSocket(int port) {
     struct sockaddr_in local_addr;
@@ -86,6 +87,7 @@ int sendFileToClient(int sockfd, struct sockaddr_in *client_addr_p, FILE *file) 
     int read_size;
     int total_send_size = 0;
     int send_size;
+    int print_size = 0;
 
     while(1) {
         if((read_size = fread(buf, 1, sizeof(buf), file)) == 0) break;
@@ -94,8 +96,11 @@ int sendFileToClient(int sockfd, struct sockaddr_in *client_addr_p, FILE *file) 
             return -1;
         }
         total_send_size += send_size;
-        printf("%d KB...\n", total_send_size / 1024 + 1);
-        usleep(5);
+        if(print_size != total_send_size / (1024*1024) + 1) {
+            print_size = total_send_size / (1024*1024) + 1;
+            printf("%d MB...\n", print_size);
+        }
+        usleep(TIME_SPACE_USEC);
     }
 
     return 0;
