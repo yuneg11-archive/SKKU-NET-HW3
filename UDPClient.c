@@ -12,7 +12,7 @@
 #define MAX_FILE_NAME_LEN 256
 #define MAX_FILE_LIST_SIZE 256
 #define TIME_SPACE_USEC 30
-#define STREAMING_TIMEOUT_SEC 5
+#define STREAMING_TIMEOUT_SEC 3
 
 int createAndSetSocket(char *addr, int port, struct sockaddr_in *server_addr_p) {
     int sockfd;
@@ -31,7 +31,7 @@ int createAndSetSocket(char *addr, int port, struct sockaddr_in *server_addr_p) 
 }
 
 int receiveFromServer(int sockfd, struct sockaddr_in *server_addr_p, char *buf, int buf_len) {
-    int server_addr_size = sizeof(*server_addr_p);
+    socklen_t server_addr_size = sizeof(*server_addr_p);
     int recv_size;
 
     if((recv_size = recvfrom(sockfd, buf, buf_len, 0, (struct sockaddr*)server_addr_p, &server_addr_size)) < 0) {
@@ -90,12 +90,9 @@ char *getVideoFileNameFromUser(char *filename, char *list) {
 }
 
 int receiveFileFromServer(int sockfd, struct sockaddr_in *server_addr_p, FILE *file) {
-    int server_addr_size = sizeof(*server_addr_p);
+    socklen_t server_addr_size = sizeof(*server_addr_p);
     char buf[MAX_MESSAGE_LEN];
-    int write_size;
-    int total_receive_size = 0;
     int receive_size;
-    int print_size = 0;
     struct timeval start_time, current_time, interval;
 
     gettimeofday(&start_time, NULL);
@@ -106,12 +103,7 @@ int receiveFileFromServer(int sockfd, struct sockaddr_in *server_addr_p, FILE *f
             if(interval.tv_sec > STREAMING_TIMEOUT_SEC) break;
             usleep(TIME_SPACE_USEC);
         } else {
-            write_size = fwrite(buf, 1, receive_size, file);
-            total_receive_size += receive_size;
-            if(print_size != total_receive_size / (1024*1024) + 1) {
-                print_size = total_receive_size / (1024*1024) + 1;
-                printf("%d MB...\n", print_size);
-            }
+            fwrite(buf, 1, receive_size, file);
             gettimeofday(&start_time, NULL);
         }
     }
@@ -191,6 +183,8 @@ int main(int argc, char *argv[]) {
         perror("Error: Video request message sending failed");
         exit(1);
     }
+
+    printf("Streaming video...\n");
 
     if(receiveFileFromServer(socketDescriptor, &serverAddr, filePointer) == -1) {
         perror("Error: Video streaming failed");

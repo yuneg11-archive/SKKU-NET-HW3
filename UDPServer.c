@@ -34,7 +34,7 @@ int createAndBindSocket(int port) {
 }
 
 int receiveFromClient(int sockfd, struct sockaddr_in *client_addr_p, char *buf, int buf_len) {
-    int client_addr_size = sizeof(*client_addr_p);
+    socklen_t client_addr_size = sizeof(*client_addr_p);
     int recv_size;
 
     if((recv_size = recvfrom(sockfd, buf, buf_len, 0, (struct sockaddr*)client_addr_p, &client_addr_size)) < 0) {
@@ -85,20 +85,13 @@ int getFileList(char *dirname, char *list) {
 int sendFileToClient(int sockfd, struct sockaddr_in *client_addr_p, FILE *file) {
     char buf[MAX_MESSAGE_LEN];
     int read_size;
-    int total_send_size = 0;
     int send_size;
-    int print_size = 0;
 
     while(1) {
         if((read_size = fread(buf, 1, sizeof(buf), file)) == 0) break;
         if((send_size = sendToClient(sockfd, client_addr_p, buf, read_size)) < 0) {
             perror("Error: Data streaming failed");
             return -1;
-        }
-        total_send_size += send_size;
-        if(print_size != total_send_size / (1024*1024) + 1) {
-            print_size = total_send_size / (1024*1024) + 1;
-            printf("%d MB...\n", print_size);
         }
         usleep(TIME_SPACE_USEC);
     }
@@ -108,7 +101,7 @@ int sendFileToClient(int sockfd, struct sockaddr_in *client_addr_p, FILE *file) 
 
 int main(int argc, char *argv[]) {
     int socketDescriptor;
-    int port;
+    int port = 8000;
     struct sockaddr_in clientAddr;
     char message[MAX_MESSAGE_LEN];
     int videoCount;
@@ -116,12 +109,12 @@ int main(int argc, char *argv[]) {
     char fileName[MAX_FILE_NAME_LEN];
     FILE *filePointer;
 
-    if(argc != 2) {
+    /*if(argc != 2) {
         printf("Usage: %s [port]\n", argv[0]);
         exit(1);
     }
 
-    port = atoi(argv[1]);
+    port = atoi(argv[1]);*/
 
     if((socketDescriptor = createAndBindSocket(port)) == -1) {
         perror("Error: Socket failed");
@@ -197,6 +190,8 @@ int main(int argc, char *argv[]) {
         sendToClient(socketDescriptor, &clientAddr, "File Not Available", 6);
         exit(1);
     }
+
+    printf("Streaming video...\n");
 
     if(sendFileToClient(socketDescriptor, &clientAddr, filePointer) == -1) {
         perror("Error: Video streaming failed");
