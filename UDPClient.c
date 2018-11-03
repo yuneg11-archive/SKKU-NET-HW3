@@ -6,10 +6,11 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
-#define MAX_MESSAGE_LEN 512
+#define MAX_MESSAGE_LEN 1024//512
 #define SERVER_ADDR_LEN 128
 #define MAX_FILE_NAME_LEN 256
 #define MAX_FILE_LIST_SIZE 256
+#define STREAMING_TIMEOUT_SEC 30
 
 int createAndSetSocket(char *addr, int port, struct sockaddr_in *server_addr_p) {
     int sockfd;
@@ -27,11 +28,11 @@ int createAndSetSocket(char *addr, int port, struct sockaddr_in *server_addr_p) 
     return sockfd;
 }
 
-int receiveFromServer(int sockfd, struct sockaddr_in *server_addr_p, char *buf, int buf_len) {
+int receiveFromServer(int sockfd, struct sockaddr_in *server_addr_p, char *buf, int buf_len, int option) {
     int server_addr_size = sizeof(*server_addr_p);
     int recv_size;
 
-    if((recv_size = recvfrom(sockfd, buf, buf_len, 0, (struct sockaddr*)server_addr_p, &server_addr_size)) < 0) {
+    if((recv_size = recvfrom(sockfd, buf, buf_len, option, (struct sockaddr*)server_addr_p, &server_addr_size)) < 0) {
         perror("Error: Message receiving failed");
         return -1;
     }
@@ -86,6 +87,38 @@ char *getVideoFileNameFromUser(char *filename, char *list) {
     return filename;
 }
 
+int receiveFileFromServer(int sockfd, struct sockaddr_in *server_addr_p, FILE *file) {
+    char buf[MAX_MESSAGE_LEN];
+    int write_size;
+    int total_receive_size = 0;
+    int receive_size;
+
+    struct timeval timeout;
+    fd_set fds;
+
+    timeout.tv_sec = STREAMING_TIMEOUT_SEC;
+    timeout.tv_usec = 0;
+
+    while(1) {
+        FD_ZERO(&fds);
+        FD_SET(sockfd, &fds);
+        
+        if(select(sockfd+1, &fds, 0, 0, &timeout) < 0) {
+            perror("Error: Data streaming failed");
+            return -1;
+        }
+
+        if (FD_ISSET(sockfd, &fds)) {
+            if((receive_size = receiveFromServer(sockfd, server_addr_p, buf, sizeof(buf), 0)) == -1) break;
+            write_size = fwrite(buf, 1, receive_size, file);
+            total_receive_size += receive_size;
+            printf("%d KB...\n", total_receive_size / 1024 + 1);
+        } else break;
+    }
+
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     int socketDescriptor;
     char serverAddress[SERVER_ADDR_LEN];
@@ -93,6 +126,7 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in serverAddr;
     char message[MAX_MESSAGE_LEN];
     char fileName[MAX_FILE_NAME_LEN];
+    FILE *filePointer;
 
     if(argc != 3) {
         printf("Usage: %s [server address] [port]\n", argv[0]);
@@ -114,7 +148,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    if(receiveFromServer(socketDescriptor, &serverAddr, message, sizeof(message)) == -1) {
+    if(receiveFromServer(socketDescriptor, &serverAddr, message, sizeof(message), 0) == -1) {
         perror("Error: Hello message receiving failed");
         exit(1);
     }
@@ -128,7 +162,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    if(receiveFromServer(socketDescriptor, &serverAddr, message, sizeof(message)) == -1) {
+    if(receiveFromServer(socketDescriptor, &serverAddr, message, sizeof(message), 0) == -1) {
         perror("Error: Video list receiving failed");
         exit(1);
     }
@@ -145,13 +179,28 @@ int main(int argc, char *argv[]) {
 
     printf("Requesting video %s...\n", fileName);
 
-    strcpy(message, "Request video ");
+    if((filePointer = fopen(fileName, "w")) == NULL) {
+        perror("Error: File accessing failed");
+        exit(1);
+    }
+
+    strcpy(message, "Request ");
     strcat(message, fileName);
 
     if(sendToServer(socketDescriptor, &serverAddr, message, strlen(message)+1) == -1) {
         perror("Error: Video request message sending failed");
         exit(1);
     }
+
+    if(receiveFileFromServer(socketDescriptor, &serverAddr, filePointer) == -1) {
+        perror("Error: Video streaming failed");
+        exit(1);
+    }
+
+    printf("Video streaming complete.\n");
+
+    fclose(filePointer);
+    close(socketDescriptor);
 
     return 0;
 }

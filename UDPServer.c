@@ -7,7 +7,7 @@
 #include <arpa/inet.h>
 #include <dirent.h>
 
-#define MAX_MESSAGE_LEN 512
+#define MAX_MESSAGE_LEN 1024//512
 #define MAX_FILE_NAME_LEN 256
 
 int createAndBindSocket(int port) {
@@ -81,13 +81,35 @@ int getFileList(char *dirname, char *list) {
     return cnt;
 }
 
+int sendFileToClient(int sockfd, struct sockaddr_in *client_addr_p, FILE *file) {
+    char buf[MAX_MESSAGE_LEN];
+    int read_size;
+    int total_send_size = 0;
+    int send_size;
+
+    while(1) {
+        if((read_size = fread(buf, 1, sizeof(buf), file)) == 0) break;
+        if((send_size = sendToClient(sockfd, client_addr_p, buf, read_size)) < 0) {
+            perror("Error: Data streaming failed");
+            return -1;
+        }
+        total_send_size += send_size;
+        printf("%d KB...\n", total_send_size / 1024 + 1);
+        usleep(5);
+    }
+
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     int socketDescriptor;
     int port;
     struct sockaddr_in clientAddr;
     char message[MAX_MESSAGE_LEN];
     int videoCount;
+    char videoDir[10] = "./video/";
     char fileName[MAX_FILE_NAME_LEN];
+    FILE *filePointer;
 
     if(argc != 2) {
         printf("Usage: %s [port]\n", argv[0]);
@@ -125,11 +147,11 @@ int main(int argc, char *argv[]) {
     printf("Client: %s\n", message);
 
     if(strcmp(message, "Request video list") != 0) {
-        perror("Error: Invalid request message received");
+        fprintf(stderr, "Error: Invalid request message received\n");
         exit(1);
     }
 
-    if((videoCount = getFileList("./video/", message)) < 0) {
+    if((videoCount = getFileList(videoDir, message)) < 0) {
         perror("Error: Video list accessing failed");
         sendToClient(socketDescriptor, &clientAddr, "Empty", 6);
         exit(1);
@@ -156,6 +178,30 @@ int main(int argc, char *argv[]) {
     }
 
     printf("Client: %s\n", message);
+
+    if(strncmp(message, "Request ", 8) != 0) {
+        fprintf(stderr, "Error: Invalid request message received\n");
+        exit(1);
+    }
+
+    strcpy(fileName, videoDir);
+    strcat(fileName, &message[8]);
+
+    if((filePointer = fopen(fileName, "r")) == NULL) {
+        perror("Error: File accessing failed");
+        sendToClient(socketDescriptor, &clientAddr, "File Not Available", 6);
+        exit(1);
+    }
+
+    if(sendFileToClient(socketDescriptor, &clientAddr, filePointer) == -1) {
+        perror("Error: Video streaming failed");
+        exit(1);
+    }
+
+    printf("Video streaming complete.\n");
+
+    fclose(filePointer);
+    close(socketDescriptor);
 
     return 0;
 }
