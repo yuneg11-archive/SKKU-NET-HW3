@@ -8,6 +8,8 @@
 
 #define MAX_MESSAGE_LEN 512
 #define SERVER_ADDR_LEN 128
+#define MAX_FILE_NAME_LEN 256
+#define MAX_FILE_LIST_SIZE 256
 
 int createAndSetSocket(char *addr, int port, struct sockaddr_in *server_addr_p) {
     int sockfd;
@@ -41,12 +43,47 @@ int sendToServer(int sockfd, struct sockaddr_in *server_addr_p, char *buf, int b
     int send_size;
 
     if((send_size = sendto(sockfd, buf, buf_len, 0, (struct sockaddr*)server_addr_p, sizeof(*server_addr_p))) < 0) {
-        printf("Edd\n");
         perror("Error: Message sending failed");
         return -1;
     }
 
     return send_size;
+}
+
+char *getVideoFileNameFromUser(char *filename, char *list) {
+    char *filename_list[MAX_FILE_LIST_SIZE];
+    char *cur = list;
+    int file_cnt = 0;
+    int select;
+    int i;
+
+    do {
+        filename_list[file_cnt] = cur;
+        cur = strchr(cur, '\n');
+        if(cur != NULL) {
+            *cur = '\0';
+            cur++;
+            file_cnt++;
+        }
+    } while(cur != NULL);
+
+    if(file_cnt == 0) {
+        perror("Error: Empty file list");
+        return NULL;
+    }
+
+    printf("\n=============== Video List ===============\n");
+    for(i = 0; i < file_cnt; i++)
+        printf(" %d) %s\n", i+1, filename_list[i]);
+    do {
+        printf(" - Choose number: ");
+        scanf("%d", &select);
+    } while(select < 1 || select > file_cnt);
+    printf("==========================================\n\n");
+
+    strcpy(filename, filename_list[select-1]);
+    
+    return filename;
 }
 
 int main(int argc, char *argv[]) {
@@ -55,6 +92,7 @@ int main(int argc, char *argv[]) {
     int port;
     struct sockaddr_in serverAddr;
     char message[MAX_MESSAGE_LEN];
+    char fileName[MAX_FILE_NAME_LEN];
 
     if(argc != 3) {
         printf("Usage: %s [server address] [port]\n", argv[0]);
@@ -82,6 +120,38 @@ int main(int argc, char *argv[]) {
     }
 
     printf("Server: %s\n", message);
+
+    printf("Requesting video list...\n");
+
+    if(sendToServer(socketDescriptor, &serverAddr, "Request video list", 19) == -1) {
+        perror("Error: Video list request message sending failed");
+        exit(1);
+    }
+
+    if(receiveFromServer(socketDescriptor, &serverAddr, message, sizeof(message)) == -1) {
+        perror("Error: Video list receiving failed");
+        exit(1);
+    }
+
+    if(strcmp(message, "Empty") == 0) {
+        fprintf(stderr, "Error: No video file exist\n");
+        exit(1);
+    }
+
+    if(getVideoFileNameFromUser(fileName, message) == NULL) {
+        perror("Error: Video selecting failed");
+        exit(1);
+    }
+
+    printf("Requesting video %s...\n", fileName);
+
+    strcpy(message, "Request video ");
+    strcat(message, fileName);
+
+    if(sendToServer(socketDescriptor, &serverAddr, message, strlen(message)+1) == -1) {
+        perror("Error: Video request message sending failed");
+        exit(1);
+    }
 
     return 0;
 }

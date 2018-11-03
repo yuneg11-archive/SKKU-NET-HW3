@@ -5,8 +5,10 @@
 #include <sys/types.h> 
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <dirent.h>
 
 #define MAX_MESSAGE_LEN 512
+#define MAX_FILE_NAME_LEN 256
 
 int createAndBindSocket(int port) {
     struct sockaddr_in local_addr;
@@ -53,11 +55,39 @@ int sendToClient(int sockfd, struct sockaddr_in *client_addr_p, char *buf, int b
     return send_size;
 }
 
+int getFileList(char *dirname, char *list) {
+    DIR *dir;
+    struct dirent *dirent;
+    int cnt = 0;
+
+    dir = opendir(dirname);
+
+    if(dir == NULL) {
+        perror("Error: Directory accessing failed");
+        return -1;
+    }
+
+    strcpy(list, "");
+
+    while ((dirent = readdir(dir)) != NULL) {
+        if(dirent->d_type == DT_REG) {
+            cnt++;
+            strcat(list, dirent->d_name);
+            strcat(list, "\n");
+        }
+    }
+    closedir(dir);
+
+    return cnt;
+}
+
 int main(int argc, char *argv[]) {
     int socketDescriptor;
     int port;
     struct sockaddr_in clientAddr;
     char message[MAX_MESSAGE_LEN];
+    int videoCount;
+    char fileName[MAX_FILE_NAME_LEN];
 
     if(argc != 2) {
         printf("Usage: %s [port]\n", argv[0]);
@@ -86,6 +116,46 @@ int main(int argc, char *argv[]) {
     }
 
     printf("Hello to client...\n");
+
+    if(receiveFromClient(socketDescriptor, &clientAddr, message, sizeof(message)) == -1) {
+        perror("Error: Video list request message receiving failed");
+        exit(1);
+    }
+
+    printf("Client: %s\n", message);
+
+    if(strcmp(message, "Request video list") != 0) {
+        perror("Error: Invalid request message received");
+        exit(1);
+    }
+
+    if((videoCount = getFileList("./video/", message)) < 0) {
+        perror("Error: Video list accessing failed");
+        sendToClient(socketDescriptor, &clientAddr, "Empty", 6);
+        exit(1);
+    }
+
+    if(videoCount == 0) {
+        fprintf(stderr, "Error: No video file exist\n");
+        sendToClient(socketDescriptor, &clientAddr, "Empty", 6);
+        exit(1);
+    }
+
+    printf("Sending video list (%d videos)...\n", videoCount);
+
+    if(sendToClient(socketDescriptor, &clientAddr, message, strlen(message)+1) == -1) {
+        perror("Error: Video list sending failed");
+        exit(1);
+    }
+
+    printf("Waiting for client to select video...\n");
+
+    if(receiveFromClient(socketDescriptor, &clientAddr, message, sizeof(message)) == -1) {
+        perror("Error: Video request message receiving failed");
+        exit(1);
+    }
+
+    printf("Client: %s\n", message);
 
     return 0;
 }

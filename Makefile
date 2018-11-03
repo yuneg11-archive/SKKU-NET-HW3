@@ -1,5 +1,5 @@
 CC	= gcc
-CFLAGS	= -g -O2
+CFLAGS	= -g -O2 -Wno-unused-result
 RM	= rm
 
 SERVER	= UDPServer.c
