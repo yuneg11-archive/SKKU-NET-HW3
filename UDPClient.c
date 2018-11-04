@@ -184,6 +184,16 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    if(receiveFromServer(socketDescriptor, &serverAddr, message, sizeof(message)) == -1) {
+        perror("Error: Streaming initializing failed");
+        exit(1);
+    }
+
+    if(strncmp(message, "Streaming ", 10) != 0) {
+        fprintf(stderr, "Error: Streaming file not available on server\n");
+        exit(1);
+    }
+
     printf("Streaming video...\n");
 
     if(receiveFileFromServer(socketDescriptor, &serverAddr, filePointer) == -1) {

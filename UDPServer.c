@@ -191,6 +191,10 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    strcpy(message, "Streaming ");
+    strcat(message, fileName);
+    sendToClient(socketDescriptor, &clientAddr, message, strlen(message)+1);
+
     printf("Streaming video...\n");
 
     if(sendFileToClient(socketDescriptor, &clientAddr, filePointer) == -1) {
