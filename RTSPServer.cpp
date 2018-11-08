@@ -211,7 +211,5 @@ int main(int argc, char *argv[]) {
 
     env->taskScheduler().doEventLoop();
 
-    //printf("Video streaming complete.\n");
-
     return 0;
 }

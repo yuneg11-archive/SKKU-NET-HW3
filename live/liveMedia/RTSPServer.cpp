@@ -23,6 +23,7 @@ along with this library; if not, write to the Free Software Foundation, Inc.,
 #include "RTSPRegisterSender.hh"
 #include "Base64.hh"
 #include <GroupsockHelper.hh>
+#include <iostream>
 
 ////////// RTSPServer implementation //////////
 
@@ -1594,6 +1595,8 @@ void RTSPServer::RTSPClientSession
     }
   }
   if (noSubsessionsRemain) delete this;
+  std::cout << "Streaming complete." << std::endl;
+  exit(0);
 }
 
 void RTSPServer::RTSPClientSession
