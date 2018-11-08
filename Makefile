@@ -1,22 +1,59 @@
-CC	= gcc
-CFLAGS	= -g -O2 -Wno-unused-result
-RM	= rm
+INCLUDES = -I./live/UsageEnvironment/include -I./live/groupsock/include -I./live/liveMedia/include -I./live/BasicUsageEnvironment/include
 
-SERVER	= UDPServer.c
-CLIENT	= UDPClient.c
-CSRCS	= $(SERVER) $(CLIENT)
-TARGETS	= UDPServer UDPClient
-OBJECTS	= $(CSRCS:.c=.o)
+COMPILE_OPTS =		$(INCLUDES) -I. -O2 -DSOCKLEN_T=socklen_t -D_LARGEFILE_SOURCE=1 -D_FILE_OFFSET_BITS=64
+C =			c
+C_COMPILER =		cc
+C_FLAGS =		$(COMPILE_OPTS) $(CPPFLAGS) $(CFLAGS) -Wno-unused-result
+CPP =			cpp
+CPLUSPLUS_COMPILER =	c++
+CPLUSPLUS_FLAGS =	$(COMPILE_OPTS) -Wall -DBSD=1 $(CPPFLAGS) $(CXXFLAGS) -Wno-unused-result
+OBJ =			o
+LINK =			c++ -o
+LINK_OPTS =		-L. $(LDFLAGS)
+CONSOLE_LINK_OPTS =	$(LINK_OPTS)
+LIB_SUFFIX =			a
+
+PREFIX = /usr/local
+
+.$(C).$(OBJ):
+	$(C_COMPILER) -c $(C_FLAGS) $<
+.$(CPP).$(OBJ):
+	$(CPLUSPLUS_COMPILER) -c $(CPLUSPLUS_FLAGS) $<
+
+RTSP_SERVER = RTSPServer
+RTSP_CLIENT = RTSPClient
+RTSP_RECEIVER = RTSPReceiver
+
+RTSP_SERVER_OBJ = $(RTSP_SERVER).$(OBJ)
+RTSP_CLIENT_OBJ = $(RTSP_CLIENT).$(OBJ)
+RTSP_RECEIVER_OBJ = $(RTSP_RECEIVER).$(OBJ)
+
+USAGE_ENVIRONMENT_DIR = ./live/UsageEnvironment
+USAGE_ENVIRONMENT_LIB = $(USAGE_ENVIRONMENT_DIR)/libUsageEnvironment.$(LIB_SUFFIX)
+BASIC_USAGE_ENVIRONMENT_DIR = ./live/BasicUsageEnvironment
+BASIC_USAGE_ENVIRONMENT_LIB = $(BASIC_USAGE_ENVIRONMENT_DIR)/libBasicUsageEnvironment.$(LIB_SUFFIX)
+LIVEMEDIA_DIR = ./live/liveMedia
+LIVEMEDIA_LIB = $(LIVEMEDIA_DIR)/libliveMedia.$(LIB_SUFFIX)
+GROUPSOCK_DIR = ./live/groupsock
+GROUPSOCK_LIB = $(GROUPSOCK_DIR)/libgroupsock.$(LIB_SUFFIX)
+LOCAL_LIBS =	$(LIVEMEDIA_LIB) $(GROUPSOCK_LIB) $(BASIC_USAGE_ENVIRONMENT_LIB) $(USAGE_ENVIRONMENT_LIB)
+LIVE_DIR = live
 
 all:
-	make server
-	make client
+	cd $(LIVE_DIR) ; $(MAKE)
+	$(MAKE) server
+	$(MAKE) client
 
-server:
-	$(CC) $(CFLAGS) $(SERVER) -o UDPServer
+server:	$(RTSP_SERVER_OBJ) $(LOCAL_LIBS)
+	cd $(LIVE_DIR) ; $(MAKE)
+	$(LINK) $(RTSP_SERVER) $(CONSOLE_LINK_OPTS) $(RTSP_SERVER_OBJ) $(LOCAL_LIBS)
 
-client:
-	$(CC) $(CFLAGS) $(CLIENT) -o UDPClient
+
+client:	$(RTSP_CLIENT_OBJ) $(RTSP_RECEIVER_OBJ) $(LOCAL_LIBS)
+	cd $(LIVE_DIR) ; $(MAKE)
+	$(LINK) $(RTSP_CLIENT) $(CONSOLE_LINK_OPTS) $(RTSP_CLIENT_OBJ) $(LOCAL_LIBS)
+	$(LINK) $(RTSP_RECEIVER) $(CONSOLE_LINK_OPTS) $(RTSP_RECEIVER_OBJ) $(LOCAL_LIBS)
 
 clean:
-	$(RM) -f $(OBJECTS) $(TARGETS)
+	cd $(LIVE_DIR) ; $(MAKE) clean
+	-rm -rf *.$(OBJ) $(ALL) core *.core *~ include/*~ $(RTSP_SERVER) $(RTSP_CLIENT) $(RTSP_RECEIVER)

@@ -1,15 +1,26 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <unistd.h>
 #include <sys/types.h> 
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <dirent.h>
+#include "liveMedia.hh"
+#include "BasicUsageEnvironment.hh"
 
-#define MAX_MESSAGE_LEN 1024//512
+#define MAX_MESSAGE_LEN 512
 #define MAX_FILE_NAME_LEN 256
-#define TIME_SPACE_USEC 30
+
+UsageEnvironment* env;
+Boolean reuseFirstSource = False;
+Boolean iFramesOnly = False;
+static char newDemuxWatchVariable;
+static MatroskaFileServerDemux* matroskaDemux;
+static void onMatroskaDemuxCreation(MatroskaFileServerDemux* newDemux, void* ) {
+  matroskaDemux = newDemux;
+  newDemuxWatchVariable = 1;
+}
 
 int createAndBindSocket(int port) {
     struct sockaddr_in local_addr;
@@ -71,7 +82,7 @@ int getFileList(char *dirname, char *list) {
     strcpy(list, "");
 
     while ((dirent = readdir(dir)) != NULL) {
-        if(dirent->d_type == DT_REG) {
+        if(dirent->d_type == DT_REG && strncmp(&(dirent->d_name[strlen(dirent->d_name)-4]), ".mkv", 4) == 0) {
             cnt++;
             strcat(list, dirent->d_name);
             strcat(list, "\n");
@@ -82,23 +93,6 @@ int getFileList(char *dirname, char *list) {
     return cnt;
 }
 
-int sendFileToClient(int sockfd, struct sockaddr_in *client_addr_p, FILE *file) {
-    char buf[MAX_MESSAGE_LEN];
-    int read_size;
-    int send_size;
-
-    while(1) {
-        if((read_size = fread(buf, 1, sizeof(buf), file)) == 0) break;
-        if((send_size = sendToClient(sockfd, client_addr_p, buf, read_size)) < 0) {
-            perror("Error: Data streaming failed");
-            return -1;
-        }
-        usleep(TIME_SPACE_USEC);
-    }
-
-    return 0;
-}
-
 int main(int argc, char *argv[]) {
     int socketDescriptor;
     int port = 8000;
@@ -107,14 +101,6 @@ int main(int argc, char *argv[]) {
     int videoCount;
     char videoDir[10] = "./video/";
     char fileName[MAX_FILE_NAME_LEN];
-    FILE *filePointer;
-
-    /*if(argc != 2) {
-        printf("Usage: %s [port]\n", argv[0]);
-        exit(1);
-    }
-
-    port = atoi(argv[1]);*/
 
     if((socketDescriptor = createAndBindSocket(port)) == -1) {
         perror("Error: Socket failed");
@@ -130,7 +116,7 @@ int main(int argc, char *argv[]) {
 
     printf("Client: %s\n", message);
 
-    if(sendToClient(socketDescriptor, &clientAddr, "Hello client.", 14) == -1) {
+    if(sendToClient(socketDescriptor, &clientAddr, (char*)"Hello client.", 14) == -1) {
         perror("Error: Hello message sending failed");
         exit(1);
     }
@@ -151,17 +137,17 @@ int main(int argc, char *argv[]) {
 
     if((videoCount = getFileList(videoDir, message)) < 0) {
         perror("Error: Video list accessing failed");
-        sendToClient(socketDescriptor, &clientAddr, "Empty", 6);
+        sendToClient(socketDescriptor, &clientAddr, (char*)"Empty", 6);
         exit(1);
     }
 
     if(videoCount == 0) {
         fprintf(stderr, "Error: No video file exist\n");
-        sendToClient(socketDescriptor, &clientAddr, "Empty", 6);
+        sendToClient(socketDescriptor, &clientAddr, (char*)"Empty", 6);
         exit(1);
     }
 
-    printf("Sending video list (%d videos)...\n", videoCount);
+    printf("Sending video list (%d mkv videos)...\n", videoCount);
 
     if(sendToClient(socketDescriptor, &clientAddr, message, strlen(message)+1) == -1) {
         perror("Error: Video list sending failed");
@@ -185,27 +171,47 @@ int main(int argc, char *argv[]) {
     strcpy(fileName, videoDir);
     strcat(fileName, &message[8]);
 
-    if((filePointer = fopen(fileName, "r")) == NULL) {
+    if(fopen(fileName, "r") == NULL) {
         perror("Error: File accessing failed");
-        sendToClient(socketDescriptor, &clientAddr, "File Not Available", 6);
+        sendToClient(socketDescriptor, &clientAddr, (char*)"File Not Available", 6);
         exit(1);
     }
 
-    strcpy(message, "Streaming ");
-    strcat(message, fileName);
-    sendToClient(socketDescriptor, &clientAddr, message, strlen(message)+1);
+    close(socketDescriptor);
 
     printf("Streaming video...\n");
+    
+    TaskScheduler* scheduler = BasicTaskScheduler::createNew();
+    env = BasicUsageEnvironment::createNew(*scheduler);
 
-    if(sendFileToClient(socketDescriptor, &clientAddr, filePointer) == -1) {
-        perror("Error: Video streaming failed");
-        exit(1);
+    RTSPServer* rtspServer = RTSPServer::createNew(*env, 8554, NULL);
+    if(rtspServer == NULL) {
+      *env << "Failed to create RTSP server: " << env->getResultMsg() << "\n";
+      exit(1);
     }
 
-    printf("Video streaming complete.\n");
+    char const* descriptionString = "RTPServer";
+    char const* streamName = "videoStream";
+    char const* inputFileName = fileName;
+    ServerMediaSession* sms = ServerMediaSession::createNew(*env, streamName, streamName, descriptionString);
 
-    fclose(filePointer);
-    close(socketDescriptor);
+    newDemuxWatchVariable = 0;
+    MatroskaFileServerDemux::createNew(*env, inputFileName, onMatroskaDemuxCreation, NULL);
+    env->taskScheduler().doEventLoop(&newDemuxWatchVariable);
+
+    Boolean sessionHasTracks = False;
+    ServerMediaSubsession* smss;
+    while((smss = matroskaDemux->newServerMediaSubsession()) != NULL) {
+        sms->addSubsession(smss);
+        sessionHasTracks = True;
+    }
+    if(sessionHasTracks) {
+        rtspServer->addServerMediaSession(sms);
+    }
+
+    env->taskScheduler().doEventLoop();
+
+    //printf("Video streaming complete.\n");
 
     return 0;
 }
