@@ -93,6 +93,40 @@ int getFileList(char *dirname, char *list) {
     return cnt;
 }
 
+int startVideoStreaming(char *fileName) {
+    TaskScheduler* scheduler = BasicTaskScheduler::createNew();
+    env = BasicUsageEnvironment::createNew(*scheduler);
+
+    RTSPServer* rtspServer = RTSPServer::createNew(*env, 8554, NULL);
+    if(rtspServer == NULL) {
+        *env << "Failed to create RTSP server: " << env->getResultMsg() << "\n";
+        return -1;
+    }
+
+    char const* descriptionString = "RTPServer";
+    char const* streamName = "videoStream";
+    char const* inputFileName = fileName;
+    ServerMediaSession* sms = ServerMediaSession::createNew(*env, streamName, streamName, descriptionString);
+
+    newDemuxWatchVariable = 0;
+    MatroskaFileServerDemux::createNew(*env, inputFileName, onMatroskaDemuxCreation, NULL);
+    env->taskScheduler().doEventLoop(&newDemuxWatchVariable);
+
+    Boolean sessionHasTracks = False;
+    ServerMediaSubsession* smss;
+    while((smss = matroskaDemux->newServerMediaSubsession()) != NULL) {
+        sms->addSubsession(smss);
+        sessionHasTracks = True;
+    }
+    if(sessionHasTracks) {
+        rtspServer->addServerMediaSession(sms);
+    }
+
+    env->taskScheduler().doEventLoop();
+
+    return 0;
+}
+
 int main(int argc, char *argv[]) {
     int socketDescriptor;
     int port = 8000;
@@ -177,39 +211,22 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
+    strcpy(message, "Streaming ");
+    strcat(message, &fileName[strlen(videoDir)]);
+
+    if(sendToClient(socketDescriptor, &clientAddr, message, strlen(message)+1) == -1) {
+        perror("Error: Video list sending failed");
+        exit(1);
+    }
+
     close(socketDescriptor);
 
     printf("Streaming video...\n");
-    
-    TaskScheduler* scheduler = BasicTaskScheduler::createNew();
-    env = BasicUsageEnvironment::createNew(*scheduler);
 
-    RTSPServer* rtspServer = RTSPServer::createNew(*env, 8554, NULL);
-    if(rtspServer == NULL) {
-      *env << "Failed to create RTSP server: " << env->getResultMsg() << "\n";
-      exit(1);
+    if(startVideoStreaming(fileName) == -1) {
+        perror("Error: Video streaming failed");
+        exit(1);
     }
-
-    char const* descriptionString = "RTPServer";
-    char const* streamName = "videoStream";
-    char const* inputFileName = fileName;
-    ServerMediaSession* sms = ServerMediaSession::createNew(*env, streamName, streamName, descriptionString);
-
-    newDemuxWatchVariable = 0;
-    MatroskaFileServerDemux::createNew(*env, inputFileName, onMatroskaDemuxCreation, NULL);
-    env->taskScheduler().doEventLoop(&newDemuxWatchVariable);
-
-    Boolean sessionHasTracks = False;
-    ServerMediaSubsession* smss;
-    while((smss = matroskaDemux->newServerMediaSubsession()) != NULL) {
-        sms->addSubsession(smss);
-        sessionHasTracks = True;
-    }
-    if(sessionHasTracks) {
-        rtspServer->addServerMediaSession(sms);
-    }
-
-    env->taskScheduler().doEventLoop();
 
     return 0;
 }

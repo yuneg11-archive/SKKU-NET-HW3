@@ -156,6 +156,17 @@ int main(int argc, char** argv) {
         perror("Error: Video request message sending failed");
         exit(1);
     }
+
+    if(receiveFromServer(socketDescriptor, &serverAddr, message, sizeof(message)) == -1) {
+        perror("Error: Streaming initializing failed");
+        exit(1);
+    }
+
+    if(strncmp(message, "Streaming ", 10) != 0) {
+        fprintf(stderr, "Error: Streaming file not available on server\n");
+        exit(1);
+    }
+    
     close(socketDescriptor);
 
     printf("Streaming video...\n");
@@ -173,5 +184,5 @@ int main(int argc, char** argv) {
         printf("Streaming complete.\n");
     }
 
-  return 0;
+    return 0;
 }
